@@ -1,9 +1,8 @@
 import csv
-import os
+import re
 import ntpath
 import settings
 from typing import List
-PATH_TO_DB = "/now/db/"
 
 
 class MyDB():
@@ -25,7 +24,7 @@ class MyDB():
                   " @ myDB::add_file_contents")
             return
 
-        full_file_path = PATH_TO_DB + identifier + self.EXTENSION + ".csv"
+        full_file_path = settings.PATH_TO_DB + identifier + self.EXTENSION + ".csv"
 
         with open(full_file_path, mode) as fp:
             if data:
@@ -41,10 +40,11 @@ class MyDB():
             # Every log file from ds2 has only 1 line
             line = fp.read()
             line = line.strip()  # remove /n from the end
-            results = line.split(',')
-            data = [ntpath.basename(file_path), results[0]
-                    ] + args[1:] + results[1:]
-            print('DATA INSERTED: ' + str(data) + " @ " + file_path)
+            results = line.split(',')            
+            nums = re.findall('\d+', ntpath.basename(file_path))
+            data = [results[0], str(nums[1])] + args[1:] + results[1:]
+
+            print('DATA INSERTED: ' + str(data) + " @ file: " + file_path)
             # Data format: Query1 [specific metrics...] [log results]
             self.store(args[0], data, mode)
 

@@ -4,8 +4,8 @@ RATES_DIR = "/rates/"
 SCRIPT_PATH = "/now/src/run_queries.sh"
 RESULTS_DIR_DOCKER = "/now/db/"
 RESULTS_DIR = "/home/alex/ds2docker/runtime/db/"
-PATH = "../db/"
-PLOT_DIR = PATH + "plots/"
+PATH = PATH_TO_DB = "../db/"
+PLOT_DIR = PATH_TO_DB + "plots/"
 ############ END_OF_DIRECTORIES ############
 """
 @generate_query.py
@@ -168,9 +168,7 @@ OPERATORS_NAMES_PER_QUERY = {
 ########## PANDAS_DATAFRAMES @ analyzer.py ##########
 MAIN_HEADER = [
     'operator',
-    'parallel',
     'id',
-    "operator_id",
     "op_instance_id",
     "total_op_instances",
     "epoch_timestamp",

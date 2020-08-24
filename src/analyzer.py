@@ -90,13 +90,9 @@ class Analyzer:
             Store the results in a pandas.Dataframe and filter out duplicate/NaN rows """
 
         self.data = pd.read_csv(self.fileName,
-                                names=self.mainHeader[:4] +
+                                names=self.mainHeader[:2] +
                                 self.headers[self.queryName] +
-                                self.mainHeader[4:])
-        self.data.drop(self.data.columns[3], axis=1,
-                       inplace=True)  # drop duplicate name operator
-        self.data.drop(self.data.columns[1], axis=1,
-                       inplace=True)  # drop duplicate parallelism value
+                                self.mainHeader[2:])
         print("READ " + str(len(self.data)))
         # remove any row that has a NaN value. Removing the rows with no results.
         # Bug on the db tool.

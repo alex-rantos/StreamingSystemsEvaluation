@@ -17,7 +17,7 @@ JAR_PATH="/flink/ds2-master/flink-examples/target/flink-examples-1.0-SNAPSHOT-ja
 BUILD_HELPER="/bin/bash /now/sed.sh"
 
 ### Helpers scripts ###
-python_monitor_script="python3 /now/monitor.py"
+python_monitor_script="python3 /now/src/monitor.py"
 script_path="${0}"
 
 executeQuery3() {
