@@ -17,7 +17,7 @@ from settings import QUERY_ARGS
 
 class Analyzer:
 
-    CSV_SPECIFIER = "equalmetrics"
+    CSV_SPECIFIER = ""
 
     # ATTENTION: This structure must be the same with generate_queries
     queryArg = copy.deepcopy(settings.QUERY_ARGS)
@@ -33,29 +33,35 @@ class Analyzer:
     def __init__(self, specifier, queryName="all", action=None):
         valid_specifiers = settings.VALID_CSV_SPECIFIERS
         PATH = settings.PATH
+        if specifier:
+            self.fileName = PATH + queryName + "_" + self.CSV_SPECIFIER + ".csv"
+        else:
+            self.fileName = PATH + queryName + ".csv"
         if specifier not in valid_specifiers:
             print(specifier + " is not a valid specifier @ analyzer.py")
             exit(-1)
-        if queryName == "all":
-            for file in glob.glob(PATH + "*.csv"):
+
+        if queryName == "all": 
+            # not using settings.PATH because vscode has different relative paths.
+            for file in glob.glob(settings.PATH + "/*_"+ specifier + ".csv"):
                 self.fileName = file
-                self.queryName = os.path.basename(file)[:
-                                                        -4]  # remove extension
+                self.queryName = os.path.basename(file).split("_")[0]  # remove extension
                 print(self.fileName)
                 print(self.queryName)
+                print(action)
                 self.setQuery()
-                self.analyzeRates()
+                if action == "scatter":
+                    if "equal" in specifier:
+                        self.analyzeDistributionParallelism()
+                    elif "metric" in specifier:
+                        self.analyzeDistribution(False)
         elif queryName in self.headers:
-            if specifier:
-                self.CSV_SPECIFIER = "_" + specifier
-                self.fileName = PATH + queryName + self.CSV_SPECIFIER + ".csv"
-            else:
-                self.fileName = PATH + queryName + ".csv"
             print("Reading file: " + self.fileName)
             self.queryName = queryName
             self.setQuery()
             if action == 'extract':
-                self.calcEfficientMetrics()
+                pass
+                #self.calcEfficientMetrics()
             elif action == "scatter":
                 if "equal" in specifier:
                     #self.analyzeParallelization(True)
@@ -71,16 +77,6 @@ class Analyzer:
                     self.data[(self.data["total_op_instances"] == 2.0)
                               & (self.data["operator"] == "Mapper")], 2)
                 print(df.tail(15))
-            elif action == "":
-                if specifier == "equalmetrics":
-                    #self.analyzeParallelization(True)
-                    # self.analyzeDistributionEqual()
-                    self.analyzeDistributionParallelism()
-                elif specifier == "metrics" or specifier == "_test":
-                    #self.analyzeParallelization(False)
-                    self.analyzeDistribution(False)
-                elif specifier == "":
-                    self.analyzeDistributionEqual()
             else:
                 print("Inserted invalid action [" + action +
                       "] in analyzer.py")
@@ -88,58 +84,22 @@ class Analyzer:
     def setQuery(self):
         """ Read the corresponding csv file for the set queryName
             Store the results in a pandas.Dataframe and filter out duplicate/NaN rows """
-
+        print(self.fileName)
         self.data = pd.read_csv(self.fileName,
                                 names=self.mainHeader[:2] +
                                 self.headers[self.queryName] +
+                                self.mainHeader[2:],delimiter=',', index_col=False)
+        print(self.mainHeader[:2] +
+                                self.headers[self.queryName] +
                                 self.mainHeader[2:])
-        print("READ " + str(len(self.data)))
+        print("Starting df len:" + str(len(self.data)))
+        print(self.data.head())
         # remove any row that has a NaN value. Removing the rows with no results.
-        # Bug on the db tool.
+        # Bug on the my_db.py or monitor.py.
         self.data = self.data.dropna()
-        print("REMOVED DUPLICATES " + str(len(self.data)))
+        print("REMOVED NA. Current df len: " + str(len(self.data)))
 
-    def calcEfficientMetrics(self, percent=0.05):
-        """
-        Looks the {percent} of the maximun output rates and saves the mean input values of paralelization and rates.
-        # WRONG WAY of calculate efficient metrics since we care about all the spectrum of the data not the 5% of the best.
-        """
-        startIndex = len(self.queryArg[self.queryName]) + 4
-        uniqueOperators = self.data["operator_id"].unique()
-        file_path = settings.PATH + "plots/" + self.queryName + "/" + "bestResults_" + self.CSV_SPECIFIER + ".txt"
-        skipSet = set({0, 'NaN', 'nan'})
-        with open(file_path, 'w+') as f:
-            for operator in sorted(uniqueOperators):
-                df = self.data[self.data["operator_id"] == operator]
-                f.write("OPERATOR__ID : " + operator + "\n")
-                print("OPERATOR__ID : " + operator)
-                for i in range(startIndex, startIndex + 4):
-                    currentOutputRateName = df.columns[i]
-                    bestDF = df.sort_values(by=currentOutputRateName,
-                                            ascending=False)
-                    uniqueValues = int(
-                        sum(bestDF[currentOutputRateName].unique()))
-                    if uniqueValues in skipSet:
-                        continue
-                    print("------------" + currentOutputRateName +
-                          "------------")
-                    print(uniqueValues)
-                    print(len(bestDF))
-                    bestDF = bestDF.head(round(percent * len(bestDF)))
-                    print(len(bestDF))
-                    curOutputRateMeanVal = round(
-                        bestDF[currentOutputRateName].mean(), 2)
-                    f.write("--------" + currentOutputRateName + " == " +
-                            str(curOutputRateMeanVal) + "--------" + "\n")
-                    #top20Percent
-                    print(currentOutputRateName)
-                    for key in self.headers[self.queryName]:
-                        mean = round(bestDF[key].mean(), 2)
-                        result = f'\t\t{key} == {mean} \n'
-                        f.write(result)
-                    f.write("\n")
-                    print()
-
+    
     def aggregate_func(self, curDF, parallelismVal):
         uniqueParallel = curDF["total_op_instances"].unique()
         print(uniqueParallel)
@@ -170,13 +130,54 @@ class Analyzer:
             sortDF.index //
             parallelismVal).aggregate(aggregation_functions).reindex(
                 columns=curDF.columns)
+    """
+    def calcEfficientMetrics(self, percent=0.05):
+        \"""
+        Looks the {percent} of the maximun output rates and saves the mean input values of paralelization and rates.
+        # WRONG WAY of calculate efficient metrics since we care about all the spectrum of the data not the 5% of the best.
+        \"""
+        startIndex = len(self.queryArg[self.queryName]) + 4
+        uniqueOperators = self.data["operator"].unique()
+        file_path = settings.PATH + "plots/" + self.queryName + "/" + "bestResults_" + self.CSV_SPECIFIER + ".txt"
+        skipSet = set({0, 'NaN', 'nan'})
+        with open(file_path, 'w+') as f:
+            for operator in sorted(uniqueOperators):
+                df = self.data[self.data["operator"] == operator]
+                f.write("OPERATOR__ID : " + operator + "\n")
+                print("OPERATOR__ID : " + operator)
+                for i in range(startIndex, startIndex + 4):
+                    currentOutputRateName = df.columns[i]
+                    bestDF = df.sort_values(by=currentOutputRateName,
+                                            ascending=False)
+                    uniqueValues = int(
+                        sum(bestDF[currentOutputRateName].unique()))
+                    if uniqueValues in skipSet:
+                        continue
+                    print("------------" + currentOutputRateName +
+                          "------------")
+                    print(uniqueValues)
+                    print(len(bestDF))
+                    bestDF = bestDF.head(round(percent * len(bestDF)))
+                    print(len(bestDF))
+                    curOutputRateMeanVal = round(
+                        bestDF[currentOutputRateName].mean(), 2)
+                    f.write("--------" + currentOutputRateName + " == " +
+                            str(curOutputRateMeanVal) + "--------" + "\n")
+                    #top20Percent
+                    print(currentOutputRateName)
+                    for key in self.headers[self.queryName]:
+                        mean = round(bestDF[key].mean(), 2)
+                        result = f'\t\t{key} == {mean} \n'
+                        f.write(result)
+                    f.write("\n")
+                    print()
 
     def analyzeRates(self):
         data = self.data
-        uniqueOperators = data["operator_id"].unique()
+        uniqueOperators = data["operator"].unique()
         print(uniqueOperators)
         for operator in uniqueOperators:
-            data = self.data[self.data["operator_id"] == operator]
+            data = self.data[self.data["operator"] == operator]
             for rate in range(self.ratesPerQuery[self.queryName]):
                 uniqueRates = data.iloc[:, rate + 1].unique()
                 uniqueRates = np.sort(uniqueRates)
@@ -232,13 +233,13 @@ class Analyzer:
 
     def analyzeParallelization(self, equalParallelizationOperators=False):
         data = self.data
-        uniqueOperators = data["operator_id"].unique()
+        uniqueOperators = data["operator"].unique()
         numberOfOperators = (len(data.columns) - len(self.mainHeader) -
                              self.ratesPerQuery[self.queryName])
 
         for operator in uniqueOperators:
-            operatorDF = data[data["operator_id"] == operator]
-            print("SELECTED operator_id:" + operator)
+            operatorDF = data[data["operator"] == operator]
+            print("SELECTED operator:" + operator)
             parallelOperators = [i for i in range(1, numberOfOperators + 1)]
             # queries generated with the same parallelization values for all operators
             uniqueParallelizationArray = operatorDF.iloc[:, self.ratesPerQuery[
@@ -382,173 +383,16 @@ class Analyzer:
                 if equalParallelizationOperators:
                     break
 
-    def analyzeDistribution(self, equalParallelizationOperators=False):
-        data = self.data
-        uniqueOperators = data["operator"].unique()
-        numberOfOperators = (len(settings.QUERY_ARGS[self.queryName]) -
-                             self.ratesPerQuery[self.queryName])
-        print(data.head(5))
-        print(numberOfOperators)
-
-        for operator in uniqueOperators:
-            print("SELECTED operator:" + operator)
-            operatorDF = data[data["operator"] == operator]
-            columnsBeforeInput = 2  # operator + id = 2
-            parallelOperators = [
-                i for i in range(columnsBeforeInput, columnsBeforeInput +
-                                 numberOfOperators)
-            ]
-            print(parallelOperators)
-            # Select all operators
-            for parallelColumn in parallelOperators:
-                uniqueParallelizationArray = \
-                    operatorDF.iloc[:,self.ratesPerQuery[self.queryName] + parallelColumn].unique()
-                print(
-                    f'{operatorDF.columns[parallelColumn+self.ratesPerQuery[self.queryName]]} == {uniqueParallelizationArray}'
-                )
-                for parallelIndex, parallelizationValue in enumerate(
-                        uniqueParallelizationArray):
-                    parallelOperatorName = operatorDF.columns[
-                        self.ratesPerQuery[self.queryName] + parallelColumn]
-                    df = None
-
-                    # Incrementing only one operator at a time and keep the rest equal to 1
-                    print("PARALLELISM:: " + parallelOperatorName + "==" +
-                          str(parallelizationValue))
-
-                    df = operatorDF[
-                        operatorDF.iloc[:, self.ratesPerQuery[self.queryName] +
-                                        parallelColumn] ==
-                        parallelizationValue]
-                    # for parallelColumn2 in parallelOperators:
-                    #     if parallelColumn2 == parallelColumn:
-                    #         continue
-                    #     parallelOperatorName = operatorDF.columns[
-                    #         self.ratesPerQuery[self.queryName] +
-                    #         parallelColumn2]
-                    #     print("PARALLELISM:: " + str(parallelColumn2) + " :" +
-                    #           parallelOperatorName + "== 1")
-                    #     df = df[df.iloc[:, self.ratesPerQuery[self.queryName] +
-                    #                     parallelColumn2] == 1]
-
-                    rateName = ""
-
-                    for primaryRate in range(
-                            columnsBeforeInput, columnsBeforeInput +
-                            self.ratesPerQuery[self.queryName]):
-                        rateName = df.columns[primaryRate]
-                        print("SELECTED RATE:" + rateName)
-
-                        uniqueRates = data.iloc[:, primaryRate].unique()
-
-                        uniqueRates = sorted(uniqueRates)
-
-                        # NOTE:
-                        if len(uniqueRates) == 0:
-                            print(f"{operator}::  {rateName} NO VALUES?")
-                        # uniqueRates = [
-                        #     self.queryArg[self.queryName][list(self.queryArg[
-                        #         self.queryName].keys())[primaryRate - 1]] * i
-                        #     for i in range(1, 11)
-                        # ]
-                        print()
-                        print(uniqueRates)
-                        print()
-                        # uniqueRates = [
-                        #     uniqueRates[index]
-                        #     for index in range(len(uniqueRates))
-                        #     if index % 2 != 0
-                        # ]
-                        uniqueTrueProc = [[] for i in range(len(uniqueRates))]
-                        uniqueTrueOut = [[] for i in range(len(uniqueRates))]
-                        uniqueObservedOut = [[]
-                                             for i in range(len(uniqueRates))]
-                        uniqueObservedProc = [[]
-                                              for i in range(len(uniqueRates))]
-
-                        for i, rateValue in enumerate(uniqueRates):
-                            meanDF = df[df.iloc[:, primaryRate] == rateValue]
-                            if meanDF["total_op_instances"].unique()[0] > 1.0:
-                                print("Aggregated from: " + str(len(meanDF)))
-                                meanDF = self.aggregate_func(
-                                    meanDF,
-                                    meanDF["total_op_instances"].unique()[0])
-                                print(
-                                    "Len : " + str(len(meanDF)) + " " +
-                                    str(meanDF["total_op_instances"].unique()))
-                            # secondRate = meanDF.iloc[:, primaryRate +
-                            #                          1 if primaryRate == 1 else primaryRate -
-                            #                          1].unique()
-
-                            # Reduce noise - Select the default values for the rest rates
-                            for secondaryRate in range(
-                                    1, self.ratesPerQuery[self.queryName] + 1):
-                                if secondaryRate == primaryRate:
-                                    continue
-                                keys = list(
-                                    self.queryArg[self.queryName].keys())
-                                print("Secondrate selected :" +
-                                      keys[secondaryRate - 1] + "==" +
-                                      str(self.queryArg[self.queryName][keys[
-                                          secondaryRate - 1]]) +
-                                      " len of df: " + str(len(meanDF)))
-                                meanDF = meanDF[meanDF.iloc[:,
-                                                            secondaryRate] ==
-                                                self.queryArg[self.queryName][
-                                                    keys[secondaryRate - 1]]]
-
-                            parallelOperatorName = parallelOperatorName[:6]
-                            rateName = rateName[:10]
-                            operator = operator[:8] + "OP"
-                            uniqueDFtrueProc = meanDF["true_proc_rate"].tolist(
-                            )
-                            uniqueDFtrueOut = meanDF[
-                                "true_output_rate"].tolist()
-                            uniqueDFobservedOut = meanDF[
-                                "observed_output_rate"].tolist()
-                            uniqueDFobservedProc = meanDF[
-                                "observed_proc_rate"].tolist()
-
-                            uniqueTrueOut[i].extend(uniqueDFtrueOut)
-                            uniqueTrueProc[i].extend(uniqueDFtrueProc)
-                            uniqueObservedOut[i].extend(uniqueDFobservedOut)
-                            uniqueObservedProc[i].extend(uniqueDFobservedProc)
-
-                        legend = ["v=" + str(i) for i in uniqueRates]
-                        self.plot_scatter_ecdf(
-                            uniqueTrueOut,
-                            "TrueOutput [rec/ut]",
-                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_TrueOutput",
-                            legend=legend)
-                        self.plot_scatter_ecdf(
-                            uniqueTrueProc,
-                            "TrueProcessing [rec/ut]",
-                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_TrueProcessing",
-                            legend=legend)
-                        self.plot_scatter_ecdf(
-                            uniqueObservedOut,
-                            "ObservedOutput [rec/ot]",
-                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_ObservedOutput",
-                            legend=legend)
-                        self.plot_scatter_ecdf(
-                            uniqueObservedProc,
-                            "ObservedProcessing [rec/ot]",
-                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_ObservedProcessing",
-                            legend=legend)
-                # All parallelizationOperators are equal so do not loop through again
-                if equalParallelizationOperators:
-                    break
-
     def analyzeDistributionEqual(self):
         print("EQUAL DISTRIBUTION")
         data = self.data
-        uniqueOperators = data["operator_id"].unique()
+        uniqueOperators = data["operator"].unique()
         numberOfOperators = (len(data.columns) - len(self.mainHeader) -
                              self.ratesPerQuery[self.queryName])
 
         for operator in uniqueOperators:
-            print("SELECTED operator_id:" + operator)
-            operatorDF = data[data["operator_id"] == operator]
+            print("SELECTED operator:" + operator)
+            operatorDF = data[data["operator"] == operator]
 
             parallelOperators = [i for i in range(1, numberOfOperators + 1)]
             for parallelColumn in parallelOperators:
@@ -674,7 +518,159 @@ class Analyzer:
                         f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_ObservedProcessing",
                         legend=legend)
                 break
+    """
 
+    def analyzeDistribution(self, equalParallelizationOperators=False):
+        data = self.data
+        uniqueOperators = data["operator"].unique()
+        numberOfOperators = (len(settings.QUERY_ARGS[self.queryName]) -
+                             self.ratesPerQuery[self.queryName])
+        #print(data.head(5))
+        #print(numberOfOperators)
+
+        for operator in uniqueOperators:
+            print("SELECTED operator:" + operator)
+            operatorDF = data[data["operator"] == operator]
+            columnsBeforeInput = 2  # operator + id = 2
+            parallelOperators = [
+                i for i in range(columnsBeforeInput, columnsBeforeInput +
+                                 numberOfOperators)
+            ]
+            print(parallelOperators)
+            # Select all operators
+            for parallelColumn in parallelOperators:
+                uniqueParallelizationArray = \
+                    operatorDF.iloc[:,self.ratesPerQuery[self.queryName] + parallelColumn].unique()
+                print(
+                    f'{operatorDF.columns[parallelColumn+self.ratesPerQuery[self.queryName]]} == {uniqueParallelizationArray}'
+                )
+                for parallelIndex, parallelizationValue in enumerate(
+                        uniqueParallelizationArray):
+                    parallelOperatorName = operatorDF.columns[
+                        self.ratesPerQuery[self.queryName] + parallelColumn]
+                    df = None
+
+                    # Incrementing only one operator at a time and keep the rest equal to 1
+                    print("PARALLELISM:: " + parallelOperatorName + "==" +
+                          str(parallelizationValue))
+
+                    df = operatorDF[
+                        operatorDF.iloc[:, self.ratesPerQuery[self.queryName] +
+                                        parallelColumn] ==
+                        parallelizationValue]
+                    # for parallelColumn2 in parallelOperators:
+                    #     if parallelColumn2 == parallelColumn:
+                    #         continue
+                    #     parallelOperatorName = operatorDF.columns[
+                    #         self.ratesPerQuery[self.queryName] +
+                    #         parallelColumn2]
+                    #     print("PARALLELISM:: " + str(parallelColumn2) + " :" +
+                    #           parallelOperatorName + "== 1")
+                    #     df = df[df.iloc[:, self.ratesPerQuery[self.queryName] +
+                    #                     parallelColumn2] == 1]
+
+                    rateName = ""
+
+                    for primaryRate in range(
+                            columnsBeforeInput, columnsBeforeInput +
+                            self.ratesPerQuery[self.queryName]):
+                        rateName = df.columns[primaryRate]
+                        print("SELECTED RATE:" + rateName)
+
+                        uniqueRates = data.iloc[:, primaryRate].unique()
+
+                        uniqueRates = sorted(uniqueRates)
+
+                        if len(uniqueRates) == 0:
+                            print(f"{operator}::  {rateName} NO VALUES?")
+                        # uniqueRates = [
+                        #     self.queryArg[self.queryName][list(self.queryArg[
+                        #         self.queryName].keys())[primaryRate - 1]] * i
+                        #     for i in range(1, 11)
+                        # ]
+                        print()
+                        print(uniqueRates)
+                        print()
+
+                        uniqueTrueProc = [[] for i in range(len(uniqueRates))]
+                        uniqueTrueOut = [[] for i in range(len(uniqueRates))]
+                        uniqueObservedOut = [[]
+                                             for i in range(len(uniqueRates))]
+                        uniqueObservedProc = [[]
+                                              for i in range(len(uniqueRates))]
+
+                        for i, rateValue in enumerate(uniqueRates):
+                            meanDF = df[df.iloc[:, primaryRate] == rateValue]
+                            if meanDF["total_op_instances"].unique()[0] > 1.0:
+                                print("Aggregated from: " + str(len(meanDF)))
+                                meanDF = self.aggregate_func(
+                                    meanDF,
+                                    meanDF["total_op_instances"].unique()[0])
+                                print(
+                                    "Len : " + str(len(meanDF)) + " " +
+                                    str(meanDF["total_op_instances"].unique()))
+                            # secondRate = meanDF.iloc[:, primaryRate +
+                            #                          1 if primaryRate == 1 else primaryRate -
+                            #                          1].unique()
+
+                            # Reduce noise - Select the default values for the rest rates
+                            # for secondaryRate in range(
+                            #         1, self.ratesPerQuery[self.queryName] + 1):
+                            #     if secondaryRate == primaryRate:
+                            #         continue
+                            #     keys = list(
+                            #         self.queryArg[self.queryName].keys())
+                            #     print("Secondrate selected :" +
+                            #           keys[secondaryRate - 1] + "==" +
+                            #           str(self.queryArg[self.queryName][keys[
+                            #               secondaryRate - 1]]) +
+                            #           " len of df: " + str(len(meanDF)))
+                            #     meanDF = meanDF[meanDF.iloc[:,
+                            #                                 secondaryRate] ==
+                            #                     self.queryArg[self.queryName][
+                            #                         keys[secondaryRate - 1]]]
+
+                            parallelOperatorName = parallelOperatorName[:6]
+                            rateName = rateName[:10]
+                            operator = operator[:8] + "OP"
+                            uniqueDFtrueProc = meanDF["true_proc_rate"].tolist(
+                            )
+                            uniqueDFtrueOut = meanDF[
+                                "true_output_rate"].tolist()
+                            uniqueDFobservedOut = meanDF[
+                                "observed_output_rate"].tolist()
+                            uniqueDFobservedProc = meanDF[
+                                "observed_proc_rate"].tolist()
+
+                            uniqueTrueOut[i].extend(uniqueDFtrueOut)
+                            uniqueTrueProc[i].extend(uniqueDFtrueProc)
+                            uniqueObservedOut[i].extend(uniqueDFobservedOut)
+                            uniqueObservedProc[i].extend(uniqueDFobservedProc)
+
+                        legend = ["v=" + str(i) for i in uniqueRates]
+                        self.plot_scatter_ecdf(
+                            uniqueTrueOut,
+                            "TrueOutput [rec/ut]",
+                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_TrueOutput",
+                            legend=legend)
+                        self.plot_scatter_ecdf(
+                            uniqueTrueProc,
+                            "TrueProcessing [rec/ut]",
+                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_TrueProcessing",
+                            legend=legend)
+                        self.plot_scatter_ecdf(
+                            uniqueObservedOut,
+                            "ObservedOutput [rec/ot]",
+                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_ObservedOutput",
+                            legend=legend)
+                        self.plot_scatter_ecdf(
+                            uniqueObservedProc,
+                            "ObservedProcessing [rec/ot]",
+                            f"{operator}__{rateName}_{parallelOperatorName}={parallelizationValue}_ObservedProcessing",
+                            legend=legend)
+                # All parallelizationOperators are equal so do not loop through again
+                if equalParallelizationOperators:
+                    break
     def analyzeDistributionParallelism(self):
         print("EQUAL PARALLELISM DISTRIBUTION")
         data = self.data
@@ -683,7 +679,7 @@ class Analyzer:
                              self.ratesPerQuery[self.queryName])
 
         for operator in uniqueOperators:
-            print("SELECTED operator_id:" + operator)
+            print("SELECTED operator:" + operator)
             operatorDF = data[data["operator"] == operator]
 
             columnsBeforeInput = 2  # operator + id = 2
@@ -939,9 +935,6 @@ if __name__ == "__main__":
         exit(1)
 
     if args[1] in valid_query_names or args[1] == "all":
-        if args[1] == "all":
-            Analyzer(queryName="all", specifier=args[2])
-        else:
             Analyzer(queryName=args[1],
                      specifier=args[2] if len(args) >= 3 else "",
                      action=args[3] if len(args) == 4 else None)
