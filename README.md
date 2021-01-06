@@ -1,4 +1,6 @@
-# About
+# A Reliable Benchmark Framework for Streaming Systems
+
+## About
 
 This is an instrumentation tool for benchmarking Streaming Systems in regards to latency and throughput.
 It was developed in the context of my dissertation in Newcastle University and was supervised by Professor
